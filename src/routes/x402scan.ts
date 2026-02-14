@@ -62,7 +62,9 @@ router.get('/x402/:username/:apiName/:endpointPath', async (req, res) => {
     const endpoint = endpointData as any;
     const developerWallet = endpoint.apis.users.wallet_address;
     // Ensure HTTPS URL (x402scan requires secure URLs)
-    const monetizedUrl = `${zedkrDomain.replace(/^http:/, 'https:')}/${username}/${apiName}/${endpointPath}`;
+    // Remove any protocol and force HTTPS
+    const cleanDomain = zedkrDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const monetizedUrl = `https://${cleanDomain}/${username}/${apiName}/${endpointPath}`;
 
     // Convert network to CAIP-2 format for x402 v2
     const networkCAIP2 = network === 'mainnet' ? 'stacks:1' : 'stacks:2147483648';
