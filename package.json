@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
-    "test-client": "tsx test-client.ts"
+    "test": "node test.js"
   },
   "keywords": ["x402", "stacks", "api", "monetization"],
   "author": "",
