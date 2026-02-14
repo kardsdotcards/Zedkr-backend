@@ -13,7 +13,7 @@ const router = express.Router();
 router.all('/:username/:apiName/*', async (req, res, next) => {
   try {
     const { username, apiName } = req.params;
-    const endpointPath = req.params[0]; // The wildcard path after apiName
+    const endpointPath = (req.params as any)[0]; // The wildcard path after apiName
 
     // Resolve endpoint from database
     const { data: endpointData, error } = await supabase

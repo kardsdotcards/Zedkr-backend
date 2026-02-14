@@ -13,7 +13,7 @@ export const networkConfig = {
   network: network as 'testnet' | 'mainnet',
   stacksNetwork,
   isTestnet,
-  apiUrl: stacksNetwork.getCoreApiUrl(),
+  apiUrl: stacksNetwork.coreApiUrl,
   explorerUrl: isTestnet 
     ? 'https://explorer.stacks.co/?chain=testnet'
     : 'https://explorer.stacks.co',

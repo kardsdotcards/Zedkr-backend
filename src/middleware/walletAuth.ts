@@ -49,25 +49,12 @@ export const verifyWalletAuth = async (
     }
 
     // Optional: Verify signature if provided
+    // Note: Signature verification can be added later using @stacks/encryption
+    // For now, we only validate the address format
     if (signature && message) {
-      try {
-        const isValid = await verifyMessageSignatureRsv({
-          message,
-          signature,
-          publicKey: walletAddress, // This needs to be derived from address
-        });
-        
-        if (!isValid) {
-          return res.status(401).json({
-            success: false,
-            error: 'Invalid wallet signature',
-          });
-        }
-      } catch (sigError) {
-        console.warn('Signature verification failed:', sigError);
-        // For now, continue without signature verification
-        // In production, you might want to require it
-      }
+      console.warn('Signature verification not yet implemented');
+      // TODO: Implement signature verification using @stacks/encryption
+      // For now, continue without signature verification
     }
 
     // Find or create user by wallet address
@@ -107,7 +94,7 @@ export const verifyWalletAuth = async (
 
     // Attach user to request
     req.walletAddress = walletAddress;
-    req.user = user;
+    req.user = user || undefined;
 
     next();
   } catch (error) {

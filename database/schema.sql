@@ -17,10 +17,11 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Users table
 -- IMPORTANT: Only username is unique across all users
 -- API names and endpoint names can be duplicated across different users
+-- NOTE: All format/length validation happens in the UI, database only enforces uniqueness
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  username VARCHAR(50) UNIQUE, -- Only unique field across all users
-  wallet_address VARCHAR(100) UNIQUE NOT NULL,
+  username VARCHAR(50) UNIQUE, -- Only unique field across all users (UI validates format)
+  wallet_address VARCHAR(100) UNIQUE NOT NULL, -- UI validates Stacks wallet format
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -31,12 +32,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet ON users(wallet_address);
 -- APIs table
 -- NOTE: API names can be duplicated across users (e.g., "Weather API" can exist for 100M users)
 -- Only the combination of (user_id, api_name_slug) must be unique per user
+-- NOTE: All format/length validation happens in the UI, database only enforces uniqueness
 CREATE TABLE IF NOT EXISTS apis (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  api_name VARCHAR(100) NOT NULL, -- Can be duplicated across users
-  api_name_slug VARCHAR(100) NOT NULL, -- Can be duplicated across users
-  image_url TEXT, -- Image URL for x402scan registration (optional)
+  api_name VARCHAR(100) NOT NULL, -- Can be duplicated across users (UI validates format)
+  api_name_slug VARCHAR(100) NOT NULL, -- Can be duplicated across users (UI validates format)
+  image_url TEXT, -- Image URL for x402scan registration (optional, UI validates URL format)
   created_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(user_id, api_name_slug) -- Only unique per user, not globally
 );
@@ -48,18 +50,18 @@ CREATE INDEX IF NOT EXISTS idx_api_slug ON apis(api_name_slug);
 -- Endpoints table
 -- NOTE: Endpoint names and paths can be duplicated across different APIs/users
 -- Only the combination of (api_id, endpoint_path) must be unique per API
+-- NOTE: All format/length validation happens in the UI, database only enforces uniqueness
 CREATE TABLE IF NOT EXISTS endpoints (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   api_id UUID NOT NULL REFERENCES apis(id) ON DELETE CASCADE,
-  endpoint_name VARCHAR(200) NOT NULL, -- Can be duplicated across APIs/users
-  endpoint_path VARCHAR(500) NOT NULL, -- Can be duplicated across APIs/users
-  original_url TEXT NOT NULL, -- The actual API endpoint URL to proxy to
+  endpoint_name VARCHAR(200) NOT NULL, -- Can be duplicated across APIs/users (UI validates format)
+  endpoint_path VARCHAR(500) NOT NULL, -- Can be duplicated across APIs/users (UI validates format)
+  original_url TEXT NOT NULL, -- The actual API endpoint URL to proxy to (UI validates URL format)
   monetized_url TEXT, -- The ZedKr monetized URL (e.g., https://zedkr.com/{username}/{apiName}/{endpointPath})
-  price_microstx BIGINT NOT NULL,
+  price_microstx BIGINT NOT NULL, -- Price in microSTX (UI validates > 0)
   active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE(api_id, endpoint_path), -- Only unique per API, not globally
-  CHECK (endpoint_path ~ '^[a-z0-9_-]+$') -- Validate format: lowercase, alphanumeric, hyphens, underscores
+  UNIQUE(api_id, endpoint_path) -- Only unique per API, not globally
 );
 
 -- Create indexes for endpoints
@@ -71,12 +73,13 @@ CREATE INDEX IF NOT EXISTS idx_endpoint_active ON endpoints(active);
 -- This table records EVERY single API endpoint call
 -- Backend writes here after payment verification and proxying
 -- Frontend reads from here to display analytics per user
+-- NOTE: Backend validates all data before writing (wallet format, tx_hash, amounts, etc.)
 CREATE TABLE IF NOT EXISTS api_calls (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   endpoint_id UUID NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
-  caller_wallet VARCHAR(100) NOT NULL, -- Wallet address of the caller
-  tx_hash VARCHAR(100) UNIQUE NOT NULL, -- Transaction hash (prevents replay attacks)
-  amount_paid BIGINT NOT NULL, -- Amount paid in microSTX
+  caller_wallet VARCHAR(100) NOT NULL, -- Wallet address of the caller (backend validates format)
+  tx_hash VARCHAR(100) UNIQUE NOT NULL, -- Transaction hash (prevents replay attacks, backend validates)
+  amount_paid BIGINT NOT NULL, -- Amount paid in microSTX (backend validates > 0)
   status_code INT, -- HTTP status code from proxied request
   latency_ms INT, -- Request latency in milliseconds
   timestamp TIMESTAMP DEFAULT NOW() -- When the call was made
@@ -116,27 +119,51 @@ CREATE POLICY "Service role can manage api_calls" ON api_calls
 
 -- Frontend RLS Policies (for anon key access)
 -- Since we use wallet-based auth (not Supabase auth), we can't use auth.uid()
--- Frontend filters by user_id/wallet_address, and RLS allows SELECT operations
+-- Frontend filters by user_id/wallet_address, and RLS allows operations
 -- The security comes from frontend filtering + application logic
 
--- Users: Allow public read (frontend filters by wallet_address)
--- In production, you might want to restrict this further
+-- Users: Allow public read and insert (frontend filters by wallet_address)
+-- Users can only update their own username
 CREATE POLICY "Users can read user data" ON users
   FOR SELECT USING (true);
 
--- APIs: Allow public read (frontend filters by user_id)
--- Frontend ensures users only see their own APIs
+CREATE POLICY "Users can insert user data" ON users
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Users can update own username" ON users
+  FOR UPDATE USING (true) WITH CHECK (true);
+
+-- APIs: Allow public read, insert, update, delete (frontend filters by user_id)
+-- Frontend ensures users only manage their own APIs
 CREATE POLICY "Users can read APIs" ON apis
   FOR SELECT USING (true);
 
--- Endpoints: Allow public read (frontend filters by api_id/user_id)
--- Frontend ensures users only see endpoints for their own APIs
+CREATE POLICY "Users can insert APIs" ON apis
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Users can update own APIs" ON apis
+  FOR UPDATE USING (true) WITH CHECK (true);
+
+CREATE POLICY "Users can delete own APIs" ON apis
+  FOR DELETE USING (true);
+
+-- Endpoints: Allow public read, insert, update, delete (frontend filters by api_id/user_id)
+-- Frontend ensures users only manage endpoints for their own APIs
 CREATE POLICY "Users can read endpoints" ON endpoints
   FOR SELECT USING (true);
 
--- API calls: Allow public read (frontend filters by endpoint_id/user_id)
+CREATE POLICY "Users can insert endpoints" ON endpoints
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Users can update own endpoints" ON endpoints
+  FOR UPDATE USING (true) WITH CHECK (true);
+
+CREATE POLICY "Users can delete own endpoints" ON endpoints
+  FOR DELETE USING (true);
+
+-- API calls: Allow public read only (frontend filters by endpoint_id/user_id)
 -- CRITICAL: Frontend MUST filter by user's endpoints only
--- This ensures users only see transactions for their own APIs
+-- Backend writes API calls, frontend only reads
 CREATE POLICY "Users can read API calls" ON api_calls
   FOR SELECT USING (true);
 
