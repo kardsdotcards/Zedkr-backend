@@ -9,7 +9,7 @@
 
 import { supabase } from '../config/supabase.js';
 
-const ZEDKR_DOMAIN = process.env.ZEDKR_DOMAIN || 'https://zedkr.com';
+const ZEDKR_DOMAIN = process.env.ZEDKR_DOMAIN || 'https://zedkr.up.railway.app';
 
 export async function updateMonetizedUrls() {
   try {
