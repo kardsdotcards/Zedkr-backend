@@ -4,7 +4,7 @@
  * This function is called by the backend to update monetized_url
  * for endpoints that don't have it set yet.
  * 
- * Monetized URL format: https://zedkr.com/{username}/{apiNameSlug}/{endpointPath}
+ * Monetized URL format: https://zedkr.up.railway.app/{username}/{apiNameSlug}/{endpointPath}
  */
 
 import { supabase } from '../config/supabase.js';
@@ -108,7 +108,7 @@ export async function updateMonetizedUrlForEndpoint(endpointId: string) {
       return;
     }
 
-    const ZEDKR_DOMAIN = process.env.ZEDKR_DOMAIN || 'https://zedkr.com';
+    const ZEDKR_DOMAIN = process.env.ZEDKR_DOMAIN || 'https://zedkr.up.railway.app';
     const monetizedUrl = `${ZEDKR_DOMAIN}/${user.username}/${api.api_name_slug}/${endpoint.endpoint_path}`;
 
     const { error: updateError } = await supabase

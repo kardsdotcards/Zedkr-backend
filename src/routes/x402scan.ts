@@ -23,7 +23,7 @@ router.get('/x402/:username/:apiName/:endpointPath', async (req, res) => {
   try {
     const { username, apiName, endpointPath } = req.params;
     const network = (process.env.NETWORK || 'testnet') as 'mainnet' | 'testnet';
-    const zedkrDomain = process.env.ZEDKR_DOMAIN || 'https://zedkr.com';
+    const zedkrDomain = process.env.ZEDKR_DOMAIN || 'https://zedkr.up.railway.app';
 
     // Resolve endpoint from database
     const { data: endpointData, error } = await supabase

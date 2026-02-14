@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS endpoints (
   endpoint_name VARCHAR(200) NOT NULL, -- Can be duplicated across APIs/users (UI validates format)
   endpoint_path VARCHAR(500) NOT NULL, -- Can be duplicated across APIs/users (UI validates format)
   original_url TEXT NOT NULL, -- The actual API endpoint URL to proxy to (UI validates URL format)
-  monetized_url TEXT, -- The ZedKr monetized URL (e.g., https://zedkr.com/{username}/{apiName}/{endpointPath})
+  monetized_url TEXT, -- The ZedKr monetized URL (e.g., https://zedkr.up.railway.app/{username}/{apiName}/{endpointPath})
   price_microstx BIGINT NOT NULL, -- Price in microSTX (UI validates > 0)
   active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT NOW(),

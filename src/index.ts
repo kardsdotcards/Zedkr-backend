@@ -20,7 +20,7 @@ if (!process.env.NETWORK) {
 
 // Middleware
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'https://zedkr.com',
+  origin: process.env.CORS_ORIGIN || 'https://zedkr.up.railway.app',
   credentials: true,
 }));
 app.use(express.json());
