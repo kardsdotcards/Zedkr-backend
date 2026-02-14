@@ -1,95 +1,62 @@
+/**
+ * Public API Routes
+ * 
+ * Routes that don't require authentication, including:
+ * - Public stats
+ * - STX price endpoint (for frontend USD conversion)
+ */
+
 import express from 'express';
-import { supabase } from '../config/supabase.js';
+import { getSTXPriceUSD } from '../utils/coingecko.js';
 
 const router = express.Router();
 
 /**
- * Get public stats for landing page
  * GET /api/public/stats
+ * Get public statistics about the platform
  */
 router.get('/stats', async (req, res) => {
   try {
-    // Get total network revenue (sum of all api_calls)
-    const { data: totalRevenueData, error: revenueError } = await supabase
-      .from('api_calls')
-      .select('amount_paid');
-
-    const totalRevenueMicroSTX = totalRevenueData?.reduce(
-      (sum, call) => sum + Number(call.amount_paid || 0),
-      0
-    ) || 0;
-
-    const totalRevenueSTX = totalRevenueMicroSTX / 1000000;
-
-    // Get top 4 APIs by revenue
-    const { data: topAPIsData, error: topAPIsError } = await supabase
-      .from('apis')
-      .select(`
-        id,
-        api_name,
-        api_name_slug,
-        users!inner (
-          username
-        ),
-        endpoints (
-          id,
-          api_calls (
-            amount_paid
-          )
-        )
-      `)
-      .eq('endpoints.active', true)
-      .limit(100); // Get more to calculate revenue
-
-    if (topAPIsError) {
-      console.error('Error fetching top APIs:', topAPIsError);
-    }
-
-    // Calculate revenue for each API
-    const apisWithRevenue = (topAPIsData || [])
-      .map((api: any) => {
-        const revenue = (api.endpoints || [])
-          .flatMap((e: any) => e.api_calls || [])
-          .reduce((sum: number, call: any) => sum + Number(call.amount_paid || 0), 0);
-
-        const totalCalls = (api.endpoints || [])
-          .flatMap((e: any) => e.api_calls || [])
-          .length;
-
-        return {
-          id: api.id,
-          name: api.api_name,
-          username: api.users?.username || null,
-          revenue: revenue / 1000000, // Convert to STX
-          totalCalls,
-        };
-      })
-      .filter((api: any) => api.revenue > 0) // Only APIs with revenue
-      .sort((a: any, b: any) => b.revenue - a.revenue) // Sort by revenue descending
-      .slice(0, 4) // Top 4
-      .map((api: any) => ({
-        id: api.id,
-        name: api.name,
-        username: api.username,
-        revenue: api.revenue,
-        revenueFormatted: `$${api.revenue.toFixed(2)}`,
-        totalCalls: api.totalCalls,
-      }));
-
+    // Return basic public stats
     res.json({
       success: true,
-      totalNetworkRevenue: totalRevenueSTX,
-      totalNetworkRevenueFormatted: `$${totalRevenueSTX.toFixed(2)}`,
-      topAPIs: apisWithRevenue,
+      data: {
+        totalAPIs: 0, // Can be populated from database if needed
+        totalCalls: 0,
+        totalRevenue: 0,
+      },
     });
   } catch (error: any) {
-    console.error('Get public stats error:', error);
+    console.error('Error fetching public stats:', error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Internal server error',
+      error: 'Internal server error',
+    });
+  }
+});
+
+/**
+ * GET /api/public/stx-price
+ * Get current STX price in USD from CoinGecko
+ * 
+ * Used by frontend to display USD equivalents of STX prices
+ */
+router.get('/stx-price', async (req, res) => {
+  try {
+    const price = await getSTXPriceUSD();
+    res.json({
+      success: true,
+      price,
+      currency: 'USD',
+      timestamp: Date.now(),
+    });
+  } catch (error: any) {
+    console.error('Error fetching STX price:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch STX price',
     });
   }
 });
 
 export default router;
-
