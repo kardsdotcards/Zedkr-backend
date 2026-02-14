@@ -1,5 +1,4 @@
 import { networkConfig } from '../config/stacks.js';
-import { StacksTestnet, StacksMainnet } from '@stacks/network';
 
 /**
  * Validate Stacks address format

@@ -13,6 +13,13 @@ interface PriceCache {
   timestamp: number;
 }
 
+interface CoinGeckoResponse {
+  blockstack?: {
+    usd?: number;
+  };
+  [key: string]: any; // Allow other properties
+}
+
 let priceCache: PriceCache | null = null;
 
 /**
@@ -41,7 +48,7 @@ export async function getSTXPriceUSD(): Promise<number> {
       throw new Error(`CoinGecko API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as CoinGeckoResponse;
     const price = data?.blockstack?.usd;
 
     if (!price || typeof price !== 'number') {
