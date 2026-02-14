@@ -13,6 +13,12 @@ const ZEDKR_DOMAIN = process.env.ZEDKR_DOMAIN || 'https://zedkr.up.railway.app';
 
 export async function updateMonetizedUrls() {
   try {
+    // Check if Supabase is properly configured
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.warn('⚠️  Supabase not configured, skipping monetized URL update');
+      return;
+    }
+
     // Get all endpoints that don't have monetized_url set
     const { data: endpoints, error: fetchError } = await supabase
       .from('endpoints')
@@ -31,7 +37,12 @@ export async function updateMonetizedUrls() {
       .eq('active', true);
 
     if (fetchError) {
-      console.error('Error fetching endpoints:', fetchError);
+      console.error('Error fetching endpoints:', {
+        message: fetchError.message,
+        details: fetchError.details,
+        hint: fetchError.hint,
+        code: fetchError.code,
+      });
       return;
     }
 
@@ -62,8 +73,16 @@ export async function updateMonetizedUrls() {
         console.log(`Updated monetized URL for endpoint ${endpoint.id}: ${monetizedUrl}`);
       }
     }
-  } catch (error) {
-    console.error('Error in updateMonetizedUrls:', error);
+  } catch (error: any) {
+    // Handle network/fetch errors gracefully
+    if (error?.message?.includes('fetch failed') || error?.code === 'ENOTFOUND' || error?.code === 'ECONNREFUSED') {
+      console.warn('⚠️  Network error updating monetized URLs (Supabase may be unreachable):', error.message);
+    } else {
+      console.error('Error in updateMonetizedUrls:', {
+        message: error?.message || 'Unknown error',
+        stack: error?.stack,
+      });
+    }
   }
 }
 

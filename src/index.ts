@@ -63,12 +63,16 @@ app.listen(PORT, async () => {
   
   // Update monetized URLs for endpoints that don't have them
   // This ensures all active endpoints have their monetized URLs set
+  // Run in background - don't block server startup if it fails
   console.log('🔄 Updating monetized URLs for endpoints...');
-  updateMonetizedUrls().then(() => {
-    console.log('✅ Monetized URLs updated');
-  }).catch((error) => {
-    console.error('❌ Error updating monetized URLs:', error);
-  });
+  updateMonetizedUrls()
+    .then(() => {
+      console.log('✅ Monetized URLs updated');
+    })
+    .catch((error) => {
+      // Don't crash server if URL update fails - it's a background task
+      console.warn('⚠️  Monetized URL update failed (non-critical):', error?.message || error);
+    });
 });
 
 export default app;
