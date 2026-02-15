@@ -253,12 +253,16 @@ async function handleProxiedRequest(req: express.Request, res: express.Response,
         [`^/.*`]: targetUrlObj.pathname + (targetUrlObj.search || ''), // Use original path
       },
       onProxyReq: (proxyReq, req, res) => {
-        // Forward original headers (except host)
+        // Forward original headers (except host and x402-specific headers)
+        const headersToSkip = ['host', 'payment-signature', 'x-private-key'];
         Object.keys(req.headers).forEach((key) => {
-          if (key.toLowerCase() !== 'host') {
+          const lowerKey = key.toLowerCase();
+          if (!headersToSkip.includes(lowerKey)) {
             const value = req.headers[key];
-            if (value) {
-              proxyReq.setHeader(key, value as string);
+            if (value && typeof value === 'string') {
+              proxyReq.setHeader(key, value);
+            } else if (Array.isArray(value) && value.length > 0) {
+              proxyReq.setHeader(key, value[0]);
             }
           }
         });
@@ -269,6 +273,58 @@ async function handleProxiedRequest(req: express.Request, res: express.Response,
           proxyReq.setHeader('Content-Type', 'application/json');
           proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
           proxyReq.write(bodyData);
+        }
+      },
+      onProxyRes: async (proxyRes, req, res) => {
+        const latency = Date.now() - startTime;
+
+        // Copy all response headers from proxied response
+        Object.keys(proxyRes.headers).forEach((key) => {
+          const value = proxyRes.headers[key];
+          if (value && !res.headersSent) {
+            // Don't overwrite payment-response if we're adding it
+            if (key.toLowerCase() !== 'payment-response') {
+              if (Array.isArray(value)) {
+                res.setHeader(key, value);
+              } else {
+                res.setHeader(key, value);
+              }
+            }
+          }
+        });
+
+        // Add payment response header if payment was made (before response is sent)
+        // Check if headers haven't been sent yet
+        if (payment && !res.headersSent) {
+          try {
+            const paymentResponse = {
+              success: true,
+              transaction: payment.transaction,
+              payer: payment.payer,
+              network: payment.network,
+            };
+            res.setHeader('payment-response', Buffer.from(JSON.stringify(paymentResponse)).toString('base64'));
+          } catch (error) {
+            // Headers already sent, ignore
+            console.warn('Could not set payment-response header:', error);
+          }
+        }
+
+        // Update API call log with status and latency (async, don't block response)
+        if (payment) {
+          // Don't await - run in background to avoid blocking response
+          Promise.resolve(supabase
+            .from('api_calls')
+            .update({
+              status_code: proxyRes.statusCode,
+              latency_ms: latency,
+            })
+            .eq('tx_hash', payment.transaction)
+          ).then(() => {
+            // Successfully updated
+          }).catch((error: any) => {
+            console.error('Error updating API call log:', error);
+          });
         }
       },
       onProxyRes: async (proxyRes, req, res) => {
