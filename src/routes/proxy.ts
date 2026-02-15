@@ -1,5 +1,5 @@
 import express from 'express';
-import { paymentMiddleware, getPayment, STXtoMicroSTX, privateKeyToAccount, signPaymentPayload, wrapAxiosWithPayment } from 'x402-stacks';
+import { paymentMiddleware, getPayment, STXtoMicroSTX, privateKeyToAccount, wrapAxiosWithPayment } from 'x402-stacks';
 import { supabase } from '../config/supabase.js';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { updateMonetizedUrlForEndpoint } from '../utils/updateMonetizedUrls.js';
@@ -301,7 +301,10 @@ async function handleProxiedRequest(req: express.Request, res: express.Response,
               latency_ms: latency,
             })
             .eq('tx_hash', payment.transaction)
-            .catch((error) => {
+            .then(() => {
+              // Successfully updated
+            })
+            .catch((error: any) => {
               console.error('Error updating API call log:', error);
             });
         }
