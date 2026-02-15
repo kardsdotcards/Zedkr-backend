@@ -1,5 +1,5 @@
 import express from 'express';
-import { paymentMiddleware, getPayment, STXtoMicroSTX, privateKeyToAccount, signPaymentPayload } from 'x402-stacks';
+import { paymentMiddleware, getPayment, STXtoMicroSTX, privateKeyToAccount, signPaymentPayload, wrapAxiosWithPayment } from 'x402-stacks';
 import { supabase } from '../config/supabase.js';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { updateMonetizedUrlForEndpoint } from '../utils/updateMonetizedUrls.js';
@@ -116,6 +116,7 @@ router.all('/:username/:apiName/*', async (req, res, next) => {
 
 /**
  * Handle direct payment with private key (auto-sign payment)
+ * This implements the x402 flow: get 402 -> sign -> retry -> proxy
  */
 async function handleDirectPayment(req: express.Request, res: express.Response, endpoint: any, privateKey: string) {
   try {
@@ -127,31 +128,81 @@ async function handleDirectPayment(req: express.Request, res: express.Response, 
     const account = privateKeyToAccount(privateKey, network);
     const payerAddress = account.address;
 
-    // Create payment payload
+    // Step 1: Make initial request to get 402 payment required
+    // We need to make an internal request to ourselves to get the 402 response
+    const axios = require('axios');
+    const baseUrl = process.env.ZEDKR_DOMAIN || 'https://zedkr.up.railway.app';
+    const requestPath = req.originalUrl.split('?')[0]; // Remove query params for internal request
+    
+    let paymentResponse;
+    try {
+      // Make request without payment signature to get 402
+      const initialResponse = await axios.get(`${baseUrl}${requestPath}`, {
+        validateStatus: () => true, // Don't throw on 402
+        headers: {
+          ...req.headers,
+          'payment-signature': undefined, // Remove if present
+        },
+      });
+
+      if (initialResponse.status !== 402) {
+        // No payment required, proxy directly
+        return handleProxiedRequest(req, res, endpoint);
+      }
+
+      paymentResponse = initialResponse.data;
+    } catch (error: any) {
+      if (error.response?.status === 402) {
+        paymentResponse = error.response.data;
+      } else {
+        throw error;
+      }
+    }
+
+    // Step 2: Parse payment details from 402 response
+    if (!paymentResponse || !paymentResponse.accepts || !paymentResponse.accepts[0]) {
+      return res.status(402).json(paymentResponse);
+    }
+
+    const paymentInfo = paymentResponse.accepts[0];
+    const amount = paymentInfo.amount || paymentInfo.amountMicroSTX;
+    const payTo = paymentInfo.payTo || paymentInfo.payto;
+
+    // Step 3: Create and sign payment payload
     const paymentPayload = {
-      amount: endpointConfig.price_microstx.toString(),
-      payTo: endpointConfig.developer_wallet,
+      amount: amount,
+      payTo: payTo,
       network: network,
       facilitatorUrl: facilitatorUrl,
-      description: `${endpoint.endpoint_name || 'API endpoint'} - ${endpoint.apis?.api_name || 'ZedKr API'}`,
     };
 
-    // Sign payment payload
+    // Sign payment payload using x402-stacks
     const paymentSignature = await signPaymentPayload(paymentPayload, account);
 
-    // Add payment signature to request headers
-    req.headers['payment-signature'] = paymentSignature;
+    // Step 4: Retry request with payment signature
+    const axiosWithPayment = wrapAxiosWithPayment(
+      axios.create({
+        baseURL: baseUrl,
+        timeout: 60000,
+      }),
+      account
+    );
 
-    // Now proceed with proxied request (payment is already signed)
-    // We'll manually create a payment object for logging
-    const payment = {
+    // Make the paid request
+    const paidResponse = await axiosWithPayment.get(requestPath);
+
+    // Step 5: Proxy the successful response
+    // Get payment details from response headers
+    const payment = getPayment({ headers: paidResponse.headers } as any) || {
       payer: payerAddress,
-      transaction: '', // Will be set after facilitator processes
+      transaction: '',
       network: network,
     };
+
+    // Attach payment to request for logging
     (req as any).payment = payment;
 
-    // Proceed to proxy
+    // Now proxy to the original API
     handleProxiedRequest(req, res, endpoint);
   } catch (error: any) {
     console.error('Direct payment error:', error);
