@@ -19,8 +19,23 @@ if (!process.env.NETWORK) {
 }
 
 // Middleware
+const allowedOrigins = [
+  'https://zedkr.up.railway.app',
+  'https://zedkr.vercel.app',
+  process.env.CORS_ORIGIN,
+].filter(Boolean); // Remove any undefined values
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'https://zedkr.up.railway.app',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 app.use(express.json());
