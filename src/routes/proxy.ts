@@ -116,100 +116,95 @@ router.all('/:username/:apiName/*', async (req, res, next) => {
 
 /**
  * Handle direct payment with private key (auto-sign payment)
- * This implements the x402 flow: get 402 -> sign -> retry -> proxy
+ * Uses wrapAxiosWithPayment to handle the full x402 flow automatically
  */
 async function handleDirectPayment(req: express.Request, res: express.Response, endpoint: any, privateKey: string) {
   try {
     const network = (process.env.NETWORK || 'testnet') as 'mainnet' | 'testnet';
-    const facilitatorUrl = process.env.FACILITATOR_URL || 'https://facilitator.stacksx402.com';
     const endpointConfig = (req as any).endpointConfig;
+    const axios = require('axios');
 
     // Create account from private key
     const account = privateKeyToAccount(privateKey, network);
     const payerAddress = account.address;
 
-    // Step 1: Make initial request to get 402 payment required
-    // We need to make an internal request to ourselves to get the 402 response
-    const axios = require('axios');
-    const baseUrl = process.env.ZEDKR_DOMAIN || 'https://zedkr.up.railway.app';
-    const requestPath = req.originalUrl.split('?')[0]; // Remove query params for internal request
-    
-    let paymentResponse;
-    try {
-      // Make request without payment signature to get 402
-      const initialResponse = await axios.get(`${baseUrl}${requestPath}`, {
-        validateStatus: () => true, // Don't throw on 402
-        headers: {
-          ...req.headers,
-          'payment-signature': undefined, // Remove if present
-        },
-      });
-
-      if (initialResponse.status !== 402) {
-        // No payment required, proxy directly
-        return handleProxiedRequest(req, res, endpoint);
-      }
-
-      paymentResponse = initialResponse.data;
-    } catch (error: any) {
-      if (error.response?.status === 402) {
-        paymentResponse = error.response.data;
-      } else {
-        throw error;
-      }
-    }
-
-    // Step 2: Parse payment details from 402 response
-    if (!paymentResponse || !paymentResponse.accepts || !paymentResponse.accepts[0]) {
-      return res.status(402).json(paymentResponse);
-    }
-
-    const paymentInfo = paymentResponse.accepts[0];
-    const amount = paymentInfo.amount || paymentInfo.amountMicroSTX;
-    const payTo = paymentInfo.payTo || paymentInfo.payto;
-
-    // Step 3: Create and sign payment payload
-    const paymentPayload = {
-      amount: amount,
-      payTo: payTo,
-      network: network,
-      facilitatorUrl: facilitatorUrl,
-    };
-
-    // Sign payment payload using x402-stacks
-    const paymentSignature = await signPaymentPayload(paymentPayload, account);
-
-    // Step 4: Retry request with payment signature
-    const axiosWithPayment = wrapAxiosWithPayment(
+    // Use wrapAxiosWithPayment to handle x402 flow automatically
+    const api = wrapAxiosWithPayment(
       axios.create({
-        baseURL: baseUrl,
+        baseURL: process.env.ZEDKR_DOMAIN || 'https://zedkr.up.railway.app',
         timeout: 60000,
       }),
       account
     );
 
-    // Make the paid request
-    const paidResponse = await axiosWithPayment.get(requestPath);
+    // Build the request path (remove privateKey from query)
+    const url = new URL(req.originalUrl, `http://${req.headers.host}`);
+    url.searchParams.delete('privateKey'); // Remove private key from URL
+    const requestPath = url.pathname + url.search;
 
-    // Step 5: Proxy the successful response
+    // Make the paid request - x402-stacks handles everything automatically
+    const response = await api.get(requestPath);
+
     // Get payment details from response headers
-    const payment = getPayment({ headers: paidResponse.headers } as any) || {
-      payer: payerAddress,
-      transaction: '',
-      network: network,
-    };
+    const paymentResponseHeader = response.headers['payment-response'];
+    let payment: any = null;
+    
+    if (paymentResponseHeader) {
+      try {
+        const decoded = Buffer.from(paymentResponseHeader, 'base64').toString();
+        const paymentData = JSON.parse(decoded);
+        payment = {
+          payer: paymentData.payer || payerAddress,
+          transaction: paymentData.transaction || '',
+          network: paymentData.network || network,
+        };
+      } catch (e) {
+        // Fallback if decoding fails
+        payment = {
+          payer: payerAddress,
+          transaction: '',
+          network: network,
+        };
+      }
+    } else {
+      payment = {
+        payer: payerAddress,
+        transaction: '',
+        network: network,
+      };
+    }
 
     // Attach payment to request for logging
     (req as any).payment = payment;
 
-    // Now proxy to the original API
-    handleProxiedRequest(req, res, endpoint);
+    // Send the response directly (it's already the proxied API response)
+    // The x402-stacks library already handled the payment and got the API response
+    res.status(response.status).json(response.data);
+    
+    // Log the API call
+    if (payment && payment.transaction) {
+      const startTime = Date.now();
+      supabase.from('api_calls').insert({
+        endpoint_id: endpointConfig.id,
+        caller_wallet: payment.payer,
+        tx_hash: payment.transaction,
+        amount_paid: endpointConfig.price_microstx,
+        status_code: response.status,
+        latency_ms: Date.now() - startTime,
+      }).catch((error) => {
+        console.error('Error logging API call:', error);
+      });
+    }
   } catch (error: any) {
     console.error('Direct payment error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to process payment with private key: ' + error.message,
-    });
+    if (error.response) {
+      res.status(error.response.status).json(error.response.data);
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to process payment with private key: ' + error.message,
+      });
+    }
   }
 }
 
