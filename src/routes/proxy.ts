@@ -170,26 +170,36 @@ async function handleProxiedRequest(req: express.Request, res: express.Response,
       onProxyRes: async (proxyRes, req, res) => {
         const latency = Date.now() - startTime;
 
-        // Update API call log with status and latency
+        // Add payment response header if payment was made (before response is sent)
+        // Check if headers haven't been sent yet
+        if (payment && !res.headersSent) {
+          try {
+            const paymentResponse = {
+              success: true,
+              transaction: payment.transaction,
+              payer: payment.payer,
+              network: payment.network,
+            };
+            res.setHeader('payment-response', Buffer.from(JSON.stringify(paymentResponse)).toString('base64'));
+          } catch (error) {
+            // Headers already sent, ignore
+            console.warn('Could not set payment-response header:', error);
+          }
+        }
+
+        // Update API call log with status and latency (async, don't block response)
         if (payment) {
-          await supabase
+          // Don't await - run in background to avoid blocking response
+          supabase
             .from('api_calls')
             .update({
               status_code: proxyRes.statusCode,
               latency_ms: latency,
             })
-            .eq('tx_hash', payment.transaction);
-        }
-
-        // Add payment response header if payment was made
-        if (payment) {
-          const paymentResponse = {
-            success: true,
-            transaction: payment.transaction,
-            payer: payment.payer,
-            network: payment.network,
-          };
-          res.setHeader('payment-response', Buffer.from(JSON.stringify(paymentResponse)).toString('base64'));
+            .eq('tx_hash', payment.transaction)
+            .catch((error) => {
+              console.error('Error updating API call log:', error);
+            });
         }
       },
       onError: (err, req, res) => {
