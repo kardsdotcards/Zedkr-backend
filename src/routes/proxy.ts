@@ -278,23 +278,8 @@ async function handleProxiedRequest(req: express.Request, res: express.Response,
       onProxyRes: async (proxyRes, req, res) => {
         const latency = Date.now() - startTime;
 
-        // Copy all response headers from proxied response
-        Object.keys(proxyRes.headers).forEach((key) => {
-          const value = proxyRes.headers[key];
-          if (value && !res.headersSent) {
-            // Don't overwrite payment-response if we're adding it
-            if (key.toLowerCase() !== 'payment-response') {
-              if (Array.isArray(value)) {
-                res.setHeader(key, value);
-              } else {
-                res.setHeader(key, value);
-              }
-            }
-          }
-        });
-
-        // Add payment response header if payment was made (before response is sent)
-        // Check if headers haven't been sent yet
+        // Add payment response header if payment was made
+        // http-proxy-middleware already handles copying response headers, we just add our custom header
         if (payment && !res.headersSent) {
           try {
             const paymentResponse = {
